@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Foundation
 import SwiftSyntax
 
 /// This class takes the raw source text and scans through it searching for comments that instruct
@@ -241,7 +240,7 @@ private class RuleStatusCollectionVisitor: SyntaxVisitor {
       return .all
     }
     let rules = matchedRuleNames.split(separator: ",")
-      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .map { $0.trimmingSwiftFormatHorizontalWhitespace() }
       .filter { $0.count > 0 }
     return .subset(ruleNames: rules)
   }

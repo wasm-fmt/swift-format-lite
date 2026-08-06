@@ -4,4 +4,8 @@ Sources/SwiftFormat/API/Configuration.swift Sources/SwiftFormat/API/Configuratio
 Sources/SwiftFormat/API/SwiftFormatError.swift Sources/SwiftFormat/API/SwiftFormatError.swift 5dd2a6e69f77c745ebc940808f05f25f62e0f6ec
 Sources/SwiftFormat/Core/Context.swift Sources/SwiftFormat/Core/Context.swift e00e38b200c47b88020f733f7acd1415b4eccc2b
 Sources/SwiftFormat/Core/Parsing.swift Sources/SwiftFormat/Core/Parsing.swift 36a8ad9fc23bdaf82982f2d98d7a7611aaed658b
+Sources/SwiftFormat/Core/RuleMask.swift Sources/SwiftFormat/Core/RuleMask.swift 976d8ee624ee956c45d012be06f20de5273598d3
 Sources/SwiftFormat/PrettyPrint/PrettyPrint.swift Sources/SwiftFormat/PrettyPrint/PrettyPrint.swift c10455f01c8e9d71dae6075b543d7ced83d18245
+Sources/SwiftFormat/PrettyPrint/TokenStreamCreator.swift Sources/SwiftFormat/PrettyPrint/TokenStreamCreator.swift f56f50e6d0ea9b5bed955d97ca1da54d4f31a54a
+Sources/SwiftFormat/PrettyPrint/Verbatim.swift Sources/SwiftFormat/PrettyPrint/Verbatim.swift ddbc17bcb0e6a73949f425b1969cfe2b9e04e7c0
+Sources/SwiftFormat/Rules/OrderedImports.swift Sources/SwiftFormat/Rules/OrderedImports.swift bc82bfa8db0989883b59bf024ddbeafdbb2c952a

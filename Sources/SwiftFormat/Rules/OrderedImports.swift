@@ -561,7 +561,7 @@ private class Line {
     // comments could be, and trim whitespace that might be after the import.
     var declForDescription = importDecl
     declForDescription.leadingTrivia = []
-    return declForDescription.description.trimmingCharacters(in: .whitespacesAndNewlines)
+    return declForDescription.description.trimmingSwiftFormatWhitespaceAndNewlines()
   }
 
   /// Returns the path that is imported by this line's import statement if it's an import statement.
@@ -572,7 +572,7 @@ private class Line {
     else {
       return ""
     }
-    return importDecl.path.description.trimmingCharacters(in: .whitespacesAndNewlines)
+    return importDecl.path.description.trimmingSwiftFormatWhitespaceAndNewlines()
   }
 
   /// Returns the first `TokenSyntax` in the code block(s) from this Line, or nil when this Line
@@ -648,7 +648,7 @@ extension Line: CustomStringConvertible {
       }
     }
 
-    return description.trimmingCharacters(in: .whitespaces)
+    return description.trimmingSwiftFormatHorizontalWhitespace()
   }
 }
 

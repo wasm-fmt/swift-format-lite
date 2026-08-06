@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Foundation
 import SwiftSyntax
 
 /// PrettyPrinter takes a Syntax node and outputs a well-formatted, re-indented reproduction of the
@@ -545,11 +544,8 @@ public class PrettyPrinter {
       }
       var text = String(source[start..<end])
       // strip trailing whitespace so that the next formatting can add the right amount
-      if let nonWhitespace = text.rangeOfCharacter(
-        from: CharacterSet.whitespaces.inverted,
-        options: .backwards
-      ) {
-        text = String(text[..<nonWhitespace.upperBound])
+      if let trailingWhitespaceStart = text.swiftFormatTrailingWhitespaceStart {
+        text = String(text[..<trailingWhitespaceStart])
       }
 
       self.disabledPosition = nil

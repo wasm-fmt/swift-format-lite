@@ -1,2 +1,3 @@
 # B: Lite-owned source files copied from the working tree during synchronization.
 Sources/SwiftFormat/API/SwiftFormatter.swift
+Sources/SwiftFormat/Core/String+Whitespace.swift

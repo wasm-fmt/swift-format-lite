@@ -2,6 +2,7 @@ import Foundation
 
 struct ImportResult {
   let upstreamFileCount: Int
+  let transformedSourceCount: Int
   let adaptedSourceCount: Int
   let liteSourceCount: Int
 }
@@ -22,6 +23,13 @@ enum UpstreamImporter {
         throw MaintenanceError("missing or renamed upstream file: \(path)")
       }
       upstreamContents[path] = data
+    }
+    var transformedContents: [String: Data] = [:]
+    for path in project.transformedSources {
+      transformedContents[path] = try transformedUpstreamData(
+        project: project,
+        path: path
+      )
     }
     for source in project.adaptedSources {
       try FileSystem.requireRegularFile(
@@ -44,6 +52,13 @@ enum UpstreamImporter {
       try FileSystem.write(data, to: relativeURL(path, under: outputRoot))
     }
 
+    for path in project.transformedSources {
+      guard let data = transformedContents[path] else {
+        throw MaintenanceError("preflight omitted mechanically transformed source: \(path)")
+      }
+      try FileSystem.write(data, to: relativeURL(path, under: outputRoot))
+    }
+
     for source in project.adaptedSources {
       try FileSystem.copyRegularFile(
         from: relativeURL(source.destination, under: project.root),
@@ -60,9 +75,38 @@ enum UpstreamImporter {
 
     return ImportResult(
       upstreamFileCount: project.upstreamFiles.count,
+      transformedSourceCount: project.transformedSources.count,
       adaptedSourceCount: project.adaptedSources.count,
       liteSourceCount: project.liteSources.count
     )
+  }
+
+  static func transformedUpstreamData(
+    project: MaintenanceProject,
+    path: String
+  ) throws -> Data {
+    let upstreamData: Data
+    do {
+      upstreamData = try project.upstreamData(path: path)
+    } catch {
+      throw MaintenanceError("missing or renamed transformed upstream source: \(path)")
+    }
+
+    guard let upstreamText = String(data: upstreamData, encoding: .utf8) else {
+      throw MaintenanceError("transformed upstream source is not UTF-8: \(path)")
+    }
+
+    var lines = upstreamText.split(
+      separator: "\n",
+      omittingEmptySubsequences: false
+    ).map(String.init)
+    let importLines = lines.indices.filter { lines[$0] == "import Foundation" }
+    try require(
+      importLines.count == 1,
+      "mechanical Foundation import transform expected exactly one matching line: \(path)"
+    )
+    lines.remove(at: importLines[0])
+    return Data(lines.joined(separator: "\n").utf8)
   }
 
   static func verifyAdaptedSourceBlobs(_ project: MaintenanceProject) throws {
@@ -96,6 +140,7 @@ public enum ImportUpstreamTool {
     let liteNoun = result.liteSourceCount == 1 ? "source" : "sources"
     print(
       "import-upstream: staged \(result.upstreamFileCount) exact upstream files, "
+        + "\(result.transformedSourceCount) mechanically transformed sources, "
         + "\(result.adaptedSourceCount) adapted snapshots, and "
         + "\(result.liteSourceCount) Lite-owned \(liteNoun) at \(outputRoot.path)"
     )

@@ -167,6 +167,7 @@ public enum SyncUpstreamTool {
     print(
       "sync-upstream: installed \(installedAudit.sourceFileCount) source files "
         + "from \(imported.upstreamFileCount) exact upstream files, "
+        + "\(imported.transformedSourceCount) mechanically transformed sources, "
         + "\(imported.adaptedSourceCount) adapted snapshots, "
         + "\(imported.liteSourceCount) Lite-owned \(liteNoun), and "
         + "\(generated.count) generated files; "

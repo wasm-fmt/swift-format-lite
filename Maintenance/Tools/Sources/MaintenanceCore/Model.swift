@@ -109,6 +109,7 @@ struct MaintenanceProject {
   let root: URL
   let lock: UpstreamLock
   let upstreamFiles: [String]
+  let transformedSources: [String]
   let adaptedSources: [AdaptedSource]
   let liteSources: [String]
   let rules: [String]
@@ -140,6 +141,10 @@ struct MaintenanceProject {
       normalizedRoot.appendingPathComponent("Maintenance/upstream-files.txt"),
       label: "upstream-files.txt"
     )
+    let transformedSources = try loadPathManifest(
+      normalizedRoot.appendingPathComponent("Maintenance/transformed-sources.txt"),
+      label: "transformed-sources.txt"
+    )
     let adaptedSources = try loadAdaptedSources(
       normalizedRoot.appendingPathComponent("Maintenance/adapted-sources.lock")
     )
@@ -159,6 +164,7 @@ struct MaintenanceProject {
       root: normalizedRoot,
       lock: lock,
       upstreamFiles: upstreamFiles,
+      transformedSources: transformedSources,
       adaptedSources: adaptedSources,
       liteSources: liteSources,
       rules: rules,
@@ -206,6 +212,7 @@ struct MaintenanceProject {
 
   private func validate() throws {
     try require(!upstreamFiles.isEmpty, "upstream-files.txt must not be empty")
+    try require(!transformedSources.isEmpty, "transformed-sources.txt must not be empty")
     try require(!adaptedSources.isEmpty, "adapted-sources.lock must not be empty")
     try require(!liteSources.isEmpty, "lite-sources.txt must not be empty")
     try require(rules.count == 25, "rules.txt must contain exactly 25 rules")
@@ -213,6 +220,7 @@ struct MaintenanceProject {
     try require(supportSources.count == 5, "test-sources.lock must contain exactly 5 support files")
 
     try requireUnique(upstreamFiles, label: "upstream-files.txt paths")
+    try requireUnique(transformedSources, label: "transformed-sources.txt paths")
     try requireUnique(adaptedSources.map(\.destination), label: "adapted destinations")
     try requireUnique(adaptedSources.map(\.upstreamSource), label: "adapted upstream sources")
     try requireUnique(liteSources, label: "lite-sources.txt paths")
@@ -232,6 +240,10 @@ struct MaintenanceProject {
     try require(
       upstreamFiles.contains("LICENSE.txt"), "upstream-files.txt must include LICENSE.txt")
 
+    for path in transformedSources {
+      try validateSourcePath(path, label: "mechanically transformed source")
+    }
+
     for source in adaptedSources {
       try validateSourcePath(source.destination, label: "adapted destination")
       try validateSourcePath(source.upstreamSource, label: "adapted upstream source")
@@ -245,12 +257,16 @@ struct MaintenanceProject {
       try validateSourcePath(path, label: "Lite-owned source")
     }
 
+    let importedRuleSources =
+      Set(upstreamFiles)
+      .union(transformedSources)
+      .union(adaptedSources.map(\.destination))
     for rule in rules {
       try require(isRuleName(rule), "invalid formatter rule name: \(rule)")
       let sourcePath = ruleSourcePath(rule)
       try require(
-        upstreamFiles.contains(sourcePath),
-        "formatter rule source is not A-owned: \(sourcePath)"
+        importedRuleSources.contains(sourcePath),
+        "formatter rule source is not imported from upstream: \(sourcePath)"
       )
     }
 
@@ -273,14 +289,37 @@ struct MaintenanceProject {
 
     let aSources = Set(upstreamFiles.filter { $0.hasPrefix("Sources/SwiftFormat/") })
     let bSources = Set(liteSources)
-    let cSources = Set(adaptedSources.map(\.destination))
+    let cMechanicalSources = Set(transformedSources)
+    let cAdaptedSources = Set(adaptedSources.map(\.destination))
     let generatedSources = Set(Self.generatedSourcePaths)
+    try require(
+      aSources.isDisjoint(with: cMechanicalSources),
+      "A and mechanically transformed C source ownership overlaps"
+    )
     try require(aSources.isDisjoint(with: bSources), "A and B source ownership overlaps")
-    try require(aSources.isDisjoint(with: cSources), "A and C source ownership overlaps")
+    try require(aSources.isDisjoint(with: cAdaptedSources), "A and adapted C ownership overlaps")
     try require(aSources.isDisjoint(with: generatedSources), "A and generated ownership overlaps")
-    try require(bSources.isDisjoint(with: cSources), "B and C source ownership overlaps")
+    try require(
+      cMechanicalSources.isDisjoint(with: bSources),
+      "mechanically transformed C and B source ownership overlaps"
+    )
+    try require(
+      cMechanicalSources.isDisjoint(with: cAdaptedSources),
+      "mechanically transformed and adapted C ownership overlaps"
+    )
+    try require(
+      cMechanicalSources.isDisjoint(with: generatedSources),
+      "mechanically transformed C and generated ownership overlaps"
+    )
+    try require(
+      bSources.isDisjoint(with: cAdaptedSources),
+      "B and adapted C source ownership overlaps"
+    )
     try require(bSources.isDisjoint(with: generatedSources), "B and generated ownership overlaps")
-    try require(cSources.isDisjoint(with: generatedSources), "C and generated ownership overlaps")
+    try require(
+      cAdaptedSources.isDisjoint(with: generatedSources),
+      "adapted C and generated ownership overlaps"
+    )
   }
 }
 

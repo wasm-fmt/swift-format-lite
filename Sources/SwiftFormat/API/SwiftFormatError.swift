@@ -10,7 +10,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// Errors that can be thrown by the `SwiftFormatter` API.
 public enum SwiftFormatError: LocalizedError {

@@ -13,9 +13,11 @@ enum SourceAuditor {
     try verifyExactCandidateTree(project: project, candidateRoot: candidateRoot)
     try verifyExactSourceTree(project: project, candidateRoot: candidateRoot)
     try verifyUpstreamOwnedFiles(project: project, candidateRoot: candidateRoot)
+    try verifyMechanicallyTransformedFiles(project: project, candidateRoot: candidateRoot)
     try verifyAdaptedAndLiteFiles(project: project, candidateRoot: candidateRoot)
     try verifyGeneratedFiles(candidateRoot: candidateRoot, generatedFiles: generatedFiles)
     try verifyRuleSources(project: project, candidateRoot: candidateRoot)
+    try verifyFoundationIsolation(project: project, candidateRoot: candidateRoot)
     try verifyExcludedSourceFeatures(project: project, candidateRoot: candidateRoot)
 
     return SourceAuditResult(sourceFileCount: expectedSourcePaths(project).count)
@@ -34,6 +36,7 @@ enum SourceAuditor {
     let actual = try FileSystem.relativeRegularFiles(under: candidateRoot)
     let expected =
       (project.upstreamFiles
+      + project.transformedSources
       + project.adaptedSources.map(\.destination)
       + project.liteSources
       + MaintenanceProject.generatedSourcePaths).sorted()
@@ -91,6 +94,28 @@ enum SourceAuditor {
     }
   }
 
+  private static func verifyMechanicallyTransformedFiles(
+    project: MaintenanceProject,
+    candidateRoot: URL
+  ) throws {
+    for path in project.transformedSources {
+      let candidate = relativeURL(path, under: candidateRoot)
+      try FileSystem.requireRegularFile(
+        candidate,
+        label: "mechanically transformed source in candidate"
+      )
+      let expected = try UpstreamImporter.transformedUpstreamData(
+        project: project,
+        path: path
+      )
+      let actual = try FileSystem.readData(candidate)
+      try require(
+        actual == expected,
+        "mechanically transformed source differs from generated upstream content: \(path)"
+      )
+    }
+  }
+
   private static func verifyAdaptedAndLiteFiles(
     project: MaintenanceProject,
     candidateRoot: URL
@@ -142,6 +167,45 @@ enum SourceAuditor {
     }
   }
 
+  private static func verifyFoundationIsolation(
+    project: MaintenanceProject,
+    candidateRoot: URL
+  ) throws {
+    let compatibilityImport =
+      """
+      #if canImport(FoundationEssentials)
+      import FoundationEssentials
+      #else
+      import Foundation
+      #endif
+      """
+    let compatibilitySources: Set<String> = [
+      "Sources/SwiftFormat/API/Configuration.swift",
+      "Sources/SwiftFormat/API/SwiftFormatError.swift",
+      "Sources/SwiftFormat/API/SwiftFormatter.swift",
+    ]
+
+    for path in expectedSourcePaths(project) {
+      let text = try FileSystem.readText(relativeURL(path, under: candidateRoot))
+      let foundationImportCount = text.split(
+        separator: "\n",
+        omittingEmptySubsequences: false
+      ).count { $0 == "import Foundation" }
+
+      if compatibilitySources.contains(path) {
+        try require(
+          foundationImportCount == 1 && text.contains(compatibilityImport),
+          "Foundation compatibility import is missing or malformed: \(path)"
+        )
+      } else {
+        try require(
+          foundationImportCount == 0,
+          "unconditional Foundation import is not allowed in Lite sources: \(path)"
+        )
+      }
+    }
+  }
+
   private static func verifyExcludedSourceFeatures(
     project: MaintenanceProject,
     candidateRoot: URL
@@ -165,6 +229,9 @@ enum SourceAuditor {
         #"printTokenStream"#,
         #"printDebugToken"#,
         #"^\s*print\("#,
+        #"\bCharacterSet\b"#,
+        #"\.trimmingCharacters\("#,
+        #"\.rangeOfCharacter\("#,
       ]
     )
     try require(
@@ -178,9 +245,10 @@ enum SourceAuditor {
     let aSources = project.upstreamFiles.filter {
       $0.hasPrefix("Sources/SwiftFormat/")
     }
+    let transformedSources = project.transformedSources
     let cSources = project.adaptedSources.map(\.destination)
     return
-      (aSources + cSources + project.liteSources
+      (aSources + transformedSources + cSources + project.liteSources
       + MaintenanceProject.generatedSourcePaths).sorted()
   }
 }

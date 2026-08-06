@@ -1,0 +1,9 @@
+# C: mechanically transformed upstream sources.
+# Each file must contain exactly one standalone `import Foundation`, which is removed.
+Sources/SwiftFormat/API/Selection.swift
+Sources/SwiftFormat/Core/Rule.swift
+Sources/SwiftFormat/PrettyPrint/Comment.swift
+Sources/SwiftFormat/PrettyPrint/PrettyPrintBuffer.swift
+Sources/SwiftFormat/Rules/AlwaysUseLiteralForEmptyCollectionInit.swift
+Sources/SwiftFormat/Rules/NoLabelsInCasePatterns.swift
+Sources/SwiftFormat/Rules/UseTripleSlashForDocumentationComments.swift

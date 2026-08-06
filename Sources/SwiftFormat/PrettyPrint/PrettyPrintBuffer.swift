@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Foundation
 
 /// Used by the PrettyPrint class to actually assemble the output string. This struct
 /// tracks state specific to the output (line number, column, etc.) rather than the pretty

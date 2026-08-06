@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Foundation
 import SwiftOperators
 import SwiftSyntax
 
@@ -4529,7 +4528,7 @@ private func isFormatterIgnorePresent(inTrivia trivia: Trivia, isWholeFile: Bool
     let trimmed =
       commentText.dropFirst(prefix.count)
       .dropLast(suffix.count)
-      .trimmingCharacters(in: .whitespaces)
+      .trimmingSwiftFormatHorizontalWhitespace()
     let pattern = isWholeFile ? "swift-format-ignore-file" : "swift-format-ignore"
     return trimmed == pattern
   }

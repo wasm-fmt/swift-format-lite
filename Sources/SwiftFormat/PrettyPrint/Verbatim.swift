@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Foundation
 
 /// Describes options for behavior when applying the indentation of the current context when
 /// printing a verbatim token.
@@ -72,7 +71,7 @@ struct Verbatim {
     self.leadingWhitespaceCounts = originalLines.map {
       max(numberOfLeadingSpaces(in: $0) - firstLineLeadingSpaceCount, 0)
     }
-    self.lines = originalLines.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " ")) }
+    self.lines = originalLines.map { $0.trimmingSwiftFormatSpaces() }
   }
 
   /// Returns the length that the pretty printer should use when determining layout for this
