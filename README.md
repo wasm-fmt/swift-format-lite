@@ -42,18 +42,39 @@ Neither form reads configuration or source files.
 
 Ownership is explicit:
 
-- A: unchanged files listed in the A section of `Maintenance/files.txt` and
-  restored from the exact upstream revision in `Upstream.lock`.
-- B: Lite-owned `Package.swift`, public `SwiftFormatter`, documentation, and
-  maintenance metadata.
-- C: the transformed files in the C section of `Maintenance/files.txt`,
-  generated rule files, and manually converted upstream tests. Source
-  transformations are applied by `Maintenance/sync-upstream` and fail if their
-  expected shape changes. Tests are never rewritten by the sync script; if a
-  locked upstream test blob changes, synchronization stops so its semantic
-  changes can be migrated and reviewed manually.
+- A: unchanged files in `Maintenance/upstream-files.txt`, imported byte-for-byte
+  from the exact upstream revision in `Upstream.lock`.
+- B: Lite-owned sources in `Maintenance/lite-sources.txt`, plus `Package.swift`,
+  documentation, and maintenance metadata.
+- C: manually maintained source snapshots in
+  `Maintenance/adapted-sources.lock`. Each snapshot records the exact upstream
+  blob that was reviewed. A changed blob stops synchronization until its
+  semantic changes are ported manually and the lock is deliberately updated.
+- Generated: the pipeline, rule registry, and rule-name cache derived from
+  `Maintenance/rules.txt`.
 
-To reproduce the imported source tree and audit the converted test snapshot:
+Tests follow the same manual-snapshot model as C sources. They are never
+rewritten by a synchronization command; `Maintenance/test-sources.lock` binds
+each converted Swift Testing file to its reviewed upstream blob.
+
+The maintenance implementation is a separate Swift package under
+`Maintenance/Tools`; it does not add products or dependencies to the library
+package. Its responsibilities remain available as separate commands:
+
+```sh
+Maintenance/import-upstream --output /tmp/swift-format-lite-candidate
+Maintenance/generate-rules --output /tmp/swift-format-lite-candidate
+Maintenance/audit --candidate /tmp/swift-format-lite-candidate
+```
+
+`Maintenance/sync-upstream` only orchestrates those stages. It constructs a
+complete candidate tree, audits it before installation, replaces only the
+explicitly managed paths, and rolls back if the installed-tree audit fails.
+There are no regex-based source transformations.
+
+After changing an exact upstream tag or SHA, first run the individual commands
+to inspect the candidate. Review any changed adapted-source or test blobs,
+manually port accepted semantic changes, update their exact locks, then run:
 
 ```sh
 Maintenance/sync-upstream

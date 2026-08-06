@@ -1,8 +1,5 @@
-# Exact SwiftFormat 603.0.0 restore inputs. The sync script treats the A
-# section as unchanged upstream-owned files and applies deterministic overlays
-# to the C section before generating the pipeline and rule registries.
-# Lite-owned files are intentionally not listed here.
-# A: unchanged upstream files.
+# A: files imported byte-for-byte from the exact revision in Upstream.lock.
+# Keep every path literal. Directories and glob patterns are not accepted.
 .gitignore
 LICENSE.txt
 Sources/SwiftFormat/API/Configuration+Default.swift
@@ -58,13 +55,3 @@ Sources/SwiftFormat/Rules/UseShorthandTypeNames.swift
 Sources/SwiftFormat/Rules/UseSingleLinePropertyGetter.swift
 Sources/SwiftFormat/Rules/UseTripleSlashForDocumentationComments.swift
 Sources/SwiftFormat/Rules/UseWhereClausesInForLoops.swift
-# C: upstream restore inputs transformed for the String-only runtime.
-Sources/SwiftFormat/API/Configuration.swift
-Sources/SwiftFormat/API/SwiftFormatError.swift
-Sources/SwiftFormat/Core/Context.swift
-Sources/SwiftFormat/Core/Parsing.swift
-Sources/SwiftFormat/PrettyPrint/PrettyPrint.swift
-# C: generated from the pinned rule manifest, not copied from upstream.
-Sources/SwiftFormat/Core/Pipelines+Generated.swift
-Sources/SwiftFormat/Core/RuleNameCache+Generated.swift
-Sources/SwiftFormat/Core/RuleRegistry+Generated.swift

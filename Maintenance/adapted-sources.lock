@@ -1,0 +1,7 @@
+# destination upstream-source upstream-blob
+# C: manually maintained Lite snapshots. A changed blob requires manual review.
+Sources/SwiftFormat/API/Configuration.swift Sources/SwiftFormat/API/Configuration.swift 8fef820c596f25802c3977f6cd2aa26c43d5966c
+Sources/SwiftFormat/API/SwiftFormatError.swift Sources/SwiftFormat/API/SwiftFormatError.swift 5dd2a6e69f77c745ebc940808f05f25f62e0f6ec
+Sources/SwiftFormat/Core/Context.swift Sources/SwiftFormat/Core/Context.swift e00e38b200c47b88020f733f7acd1415b4eccc2b
+Sources/SwiftFormat/Core/Parsing.swift Sources/SwiftFormat/Core/Parsing.swift 36a8ad9fc23bdaf82982f2d98d7a7611aaed658b
+Sources/SwiftFormat/PrettyPrint/PrettyPrint.swift Sources/SwiftFormat/PrettyPrint/PrettyPrint.swift c10455f01c8e9d71dae6075b543d7ced83d18245
