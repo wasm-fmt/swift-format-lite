@@ -1,0 +1,335 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+fail() {
+  printf 'sync-upstream: %s\n' "$1" >&2
+  exit 1
+}
+
+command -v git >/dev/null || fail "git is required"
+command -v rg >/dev/null || fail "rg is required"
+command -v tar >/dev/null || fail "tar is required"
+command -v perl >/dev/null || fail "perl is required"
+
+LOCK_TAG="$(sed -n 's/^swift-format.tag = \"\([^\"]*\)\"$/\1/p' Upstream.lock)"
+LOCK_FORMAT_SHA="$(sed -n 's/^swift-format.sha = \"\([^\"]*\)\"$/\1/p' Upstream.lock)"
+LOCK_SYNTAX_TAG="$(sed -n 's/^swift-syntax.tag = \"\([^\"]*\)\"$/\1/p' Upstream.lock)"
+LOCK_SYNTAX_SHA="$(sed -n 's/^swift-syntax.sha = \"\([^\"]*\)\"$/\1/p' Upstream.lock)"
+
+[[ -n "$LOCK_TAG" ]] || fail "Upstream.lock must pin a swift-format tag"
+[[ -n "$LOCK_SYNTAX_TAG" ]] || fail "Upstream.lock must pin a swift-syntax tag"
+[[ "$LOCK_FORMAT_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid swift-format full SHA"
+[[ "$LOCK_SYNTAX_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid swift-syntax full SHA"
+
+TAG_SHA="$(git rev-parse --verify "refs/tags/$LOCK_TAG^{commit}")"
+[[ "$TAG_SHA" == "$LOCK_FORMAT_SHA" ]] \
+  || fail "local tag $LOCK_TAG does not resolve to the Upstream.lock SHA"
+rg -q "revision: \"$LOCK_SYNTAX_SHA\"" Package.swift \
+  || fail "Package.swift does not use the locked swift-syntax revision"
+
+verify_syntax_sha() {
+  local actual=""
+  local checkout="${SWIFTSYNTAX_CHECKOUT:-}"
+
+  if [[ -n "$checkout" && -d "$checkout/.git" ]]; then
+    actual="$(git -C "$checkout" rev-parse --verify "$LOCK_SYNTAX_TAG^{commit}" 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$actual" ]]; then
+    actual="$(
+      git ls-remote "https://github.com/swiftlang/swift-syntax.git" \
+        "refs/tags/$LOCK_SYNTAX_TAG" "refs/tags/$LOCK_SYNTAX_TAG^{}" \
+        | awk '
+          /\^\{\}$/ { peeled = $1 }
+          !/\^\{\}$/ { direct = $1 }
+          END { print peeled != "" ? peeled : direct }
+        '
+    )"
+  fi
+
+  [[ "$actual" == "$LOCK_SYNTAX_SHA" ]] || fail "swift-syntax tag cannot be verified against Upstream.lock"
+}
+
+verify_syntax_sha
+
+read_files_manifest() {
+  files=()
+  unchanged_files=()
+  transformed_files=()
+  local section=""
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      "# A:"*) section="A"; continue ;;
+      "# C:"*) section="C"; continue ;;
+      ""|\#*) continue ;;
+    esac
+    [[ -n "$section" ]] || fail "files.txt path appears before an ownership section: $line"
+    files+=("$line")
+    if [[ "$section" == "A" ]]; then
+      unchanged_files+=("$line")
+    else
+      transformed_files+=("$line")
+    fi
+  done < Maintenance/files.txt
+}
+
+read_rules_manifest() {
+  rules=()
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    rules+=("$line")
+  done < Maintenance/rules.txt
+}
+
+files=()
+unchanged_files=()
+transformed_files=()
+rules=()
+read_files_manifest
+read_rules_manifest
+
+[[ "${#files[@]}" -gt 0 ]] || fail "empty files manifest"
+[[ "${#unchanged_files[@]}" -gt 0 ]] || fail "files manifest has no A-owned files"
+[[ "${#transformed_files[@]}" -gt 0 ]] || fail "files manifest has no C-owned files"
+[[ "${#rules[@]}" -eq 25 ]] || fail "rules manifest must contain exactly 25 rules"
+
+duplicate_files="$(printf '%s\n' "${files[@]}" | sort | uniq -d)"
+[[ -z "$duplicate_files" ]] || fail "files.txt contains duplicate paths: $duplicate_files"
+for file in "${files[@]}"; do
+  case "$file" in
+    /*|*'*'*|*'?'*|*'['*|*']'*|*'..'*)
+      fail "files.txt contains a non-literal path: $file"
+      ;;
+    .gitignore|LICENSE.txt|Sources/SwiftFormat/*) ;;
+    *)
+      fail "files.txt path is outside the import area: $file"
+      ;;
+  esac
+done
+
+duplicate_rules="$(printf '%s\n' "${rules[@]}" | sort | uniq -d)"
+[[ -z "$duplicate_rules" ]] || fail "rules.txt contains duplicate rules: $duplicate_rules"
+for rule in "${rules[@]}"; do
+  [[ "$rule" =~ ^[A-Z][A-Za-z0-9]*$ ]] || fail "invalid rule name: $rule"
+done
+
+rule_file() {
+  case "$1" in
+    NoEmptyLinesOpeningClosingBraces) printf '%s\n' "Sources/SwiftFormat/Rules/NoEmptyLineOpeningClosingBraces.swift" ;;
+    *) printf 'Sources/SwiftFormat/Rules/%s.swift\n' "$1" ;;
+  esac
+}
+
+for file in "${files[@]}"; do
+  git cat-file -e "$LOCK_FORMAT_SHA:$file" 2>/dev/null || fail "missing or renamed upstream file: $file"
+done
+
+tag_pipeline_rules="$(git show "$LOCK_FORMAT_SHA:Sources/SwiftFormat/Core/Pipelines+Generated.swift" \
+  | sed -n 's/.*node = \([A-Za-z0-9]*\)(context: context).*/\1/p')"
+manifest_pipeline_rules="$(printf '%s\n' "${rules[@]}")"
+[[ "$tag_pipeline_rules" == "$manifest_pipeline_rules" ]] \
+  || fail "rules.txt does not exactly match the ordered $LOCK_TAG formatter pipeline"
+
+for rule in "${rules[@]}"; do
+  source_file="$(rule_file "$rule")"
+  git cat-file -e "$LOCK_FORMAT_SHA:$source_file" 2>/dev/null || fail "missing rule source: $source_file"
+  git show "$LOCK_FORMAT_SHA:$source_file" | rg -q "class $rule: SyntaxFormatRule" \
+    || fail "rule is not a SyntaxFormatRule in the pinned tag: $rule"
+done
+
+archive_path="$(mktemp /tmp/swift-format-lite-upstream.XXXXXX)"
+trap 'rm -f -- "$archive_path"' EXIT
+git archive --format=tar --output="$archive_path" "$LOCK_FORMAT_SHA" "${files[@]}"
+
+# The source tree is an import area. Recreate it from the archive so a removed
+# upstream file cannot survive a sync, while the Lite-owned API is copied back
+# below from its overlay.
+rm -rf -- Sources/SwiftFormat
+mkdir -p Sources/SwiftFormat
+tar -xf "$archive_path"
+rm -f -- "$archive_path"
+trap - EXIT
+
+apply_context_overlay() {
+  local file="Sources/SwiftFormat/Core/Context.swift"
+  rg -q 'fileURL: URL' "$file" || fail "Context source shape changed: expected URL field"
+  perl -0pi -e 's/import Foundation\n//; s/fileURL: URL/fileName: String/g; s/self\.fileURL = fileURL/self.fileName = fileName/g; s/fileURL\.relativePath/fileName/g; s/URL/diagnostic source name/g; s/file URL/source name/g' "$file"
+  rg -q 'fileName: String' "$file" || fail "Context overlay did not apply"
+  ! rg -q '\bURL\b|fileURL|FileManager' "$file" || fail "Context still contains URL/file I/O"
+}
+
+apply_parsing_overlay() {
+  local file="Sources/SwiftFormat/Core/Parsing.swift"
+  rg -q 'assumingFileURL url: URL\?' "$file" || fail "Parsing source shape changed: expected URL parameter"
+  rg -q 'experimentalFeatures: Set<String>' "$file" \
+    || fail "Parsing source shape changed: expected experimental features"
+  perl -0pi -e '
+    s/import Foundation\n//;
+    s/\@_spi\(ExperimentalLanguageFeatures\) import SwiftParser/import SwiftParser/;
+    s/assumingFileURL url: URL\?/fileName: String/g;
+    s/assumingFileURL: url/fileName: fileName/g;
+    s/url\?\.path \?\? "<unknown>"/fileName/g;
+    s/assumingFileURL/fileName/g;
+    s/URL/source name/g;
+    s/  - url:/  - fileName:/g;
+    s/\/\/\/   - fileName: A file source name denoting the filename\/path that should be assumed for this syntax tree,\n\/\/\/     which is associated with any diagnostics emitted during formatting\. If this is nil, a\n\/\/\/     dummy value will be used\./\/\/\/   - fileName: The diagnostic source name associated with parser findings./;
+    s/\/\/\/   - experimentalFeatures:[^\n]*\n\/\/\/[^\n]*\n\/\/\/[^\n]*\n\/\/\/[^\n]*\n//;
+    s/  experimentalFeatures: Set<String>,\n//;
+    s/  var experimentalFeaturesSet: Parser\.ExperimentalFeatures = \[\]\n  for featureName in experimentalFeatures \{.*?\n  \}\n//s;
+    s/Parser\.parse\(source: sourceBytes, experimentalFeatures: experimentalFeaturesSet\)/Parser.parse(source: sourceBytes)/;
+  ' "$file"
+  rg -q 'fileName: String' "$file" || fail "Parsing overlay did not apply"
+  ! rg -q '\bURL\b|FileManager|contentsOf|ExperimentalFeatures|experimentalFeatures|unrecognizedExperimentalFeature' "$file" \
+    || fail "Parsing still contains excluded APIs"
+}
+
+apply_pretty_print_overlay() {
+  local file="Sources/SwiftFormat/PrettyPrint/PrettyPrint.swift"
+  rg -q 'context\.fileURL\.relativePath' "$file" \
+    || fail "PrettyPrint source shape changed: expected URL finding location"
+  perl -0pi -e 's/context\.fileURL\.relativePath/context.fileName/g' "$file"
+  perl -0pi -e '
+    s/\n  \/\/\/ If true, the token stream is printed to the console for debugging purposes\.\n  private var printTokenStream: Bool\n//;
+    s/  \/\/\/   - printTokenStream: Indicates whether debug information about the token stream should be\n  \/\/\/     printed to standard output\.\n//;
+    s/public init\(context: Context, source: String, node: Syntax, printTokenStream: Bool, whitespaceOnly: Bool\)/public init(context: Context, source: String, node: Syntax, whitespaceOnly: Bool)/;
+    s/\n    self\.printTokenStream = printTokenStream//;
+    s/\n    if self\.printTokenStream \{\n      printDebugToken\(token: token, length: length, idx: idx\)\n    \}//;
+    s/\n          print\("Bad index 1"\)//;
+    s/\n            print\("Bad index 2"\)//;
+    s/\n  \/\/\/ Used to track the indentation level for the debug token stream output\..*?\n  \/\/\/ Emits a finding/\n  \/\/\/ Emits a finding/s;
+  ' "$file"
+  rg -q 'context\.fileName' "$file" || fail "PrettyPrint overlay did not apply"
+  ! rg -q '\bURL\b|fileURL|FileManager|contentsOf' "$file" \
+    || fail "PrettyPrint still contains URL/file I/O"
+  ! rg -q 'printTokenStream|printDebugToken|^[[:space:]]*print\(' "$file" \
+    || fail "PrettyPrint still contains console output"
+}
+
+apply_configuration_overlay() {
+  local file="Sources/SwiftFormat/API/Configuration.swift"
+  rg -q 'public init\(contentsOf url: URL\)' "$file" || fail "Configuration source shape changed: expected file initializer"
+  rg -q 'url\(forConfigurationFileApplyingTo url: URL\)' "$file" || fail "Configuration source shape changed: expected config search"
+  perl -0pi -e 's/  \/\/\/ Creates a new `Configuration` by loading it from a configuration file\.\n  public init\(contentsOf url: URL\) throws \{\n    let data = try Data\(contentsOf: url\)\n    try self\.init\(data: data\)\n  \}\n\n//s; s/  \/\/\/ Returns the URL of the configuration file that applies to the given file or directory\.\n  public static func url\(forConfigurationFileApplyingTo url: URL\) -> URL\? \{.*?\n  \}\n//s' "$file"
+  ! rg -q 'contentsOf|FileManager|\bURL\b|url\(forConfiguration' "$file" || fail "Configuration still contains file I/O"
+}
+
+apply_error_overlay() {
+  local file="Sources/SwiftFormat/API/SwiftFormatError.swift"
+  rg -q 'case fileNotReadable' "$file" || fail "SwiftFormatError source shape changed: expected file error"
+  rg -q 'case isDirectory' "$file" || fail "SwiftFormatError source shape changed: expected directory error"
+  rg -q 'case unrecognizedExperimentalFeature' "$file" \
+    || fail "SwiftFormatError source shape changed: expected experimental feature error"
+  rg -q 'case configurationDumpFailed' "$file" \
+    || fail "SwiftFormatError source shape changed: expected configuration dump error"
+  perl -0pi -e '
+    s/import SwiftSyntax\n//;
+    s/Errors that can be thrown by the `SwiftFormatter` and `SwiftLinter` APIs\./Errors that can be thrown by the `SwiftFormatter` API./;
+    s/\n  \/\/\/ The requested file was not readable or it did not exist\.\n  case fileNotReadable\n\n  \/\/\/ The requested file was a directory\.\n  case isDirectory\n//;
+    s/\n  \/\/\/ The requested experimental feature name was not recognized by the parser\.\n  case unrecognizedExperimentalFeature\(String\)\n//;
+    s/\n  \/\/\/ An error happened while dumping the tool'\''s configuration\.\n  case configurationDumpFailed\(String\)\n//;
+    s/\n    case \.fileNotReadable:\n      return "file is not readable or does not exist"\n    case \.isDirectory:\n      return "requested path is a directory, not a file"//;
+    s/\n    case \.unrecognizedExperimentalFeature\(let name\):\n      return "experimental feature '\''\\\(name\)'\'' was not recognized by the Swift parser"//;
+    s/\n    case \.configurationDumpFailed\(let message\):\n      return "dumping configuration failed: \\\(message\)"//;
+  ' "$file"
+  ! rg -q 'fileNotReadable|isDirectory|unrecognizedExperimentalFeature|configurationDumpFailed|SwiftLinter|FileManager|contentsOf|\bURL\b|SwiftSyntax' "$file" \
+    || fail "SwiftFormatError still contains excluded APIs"
+}
+
+apply_context_overlay
+apply_parsing_overlay
+apply_pretty_print_overlay
+apply_configuration_overlay
+apply_error_overlay
+
+generate_pipeline() {
+  local file="Sources/SwiftFormat/Core/Pipelines+Generated.swift"
+  {
+    printf '%s\n' '// Generated by Maintenance/sync-upstream. Do not edit.'
+    printf '%s\n' 'import SwiftSyntax'
+    printf '%s\n' 'extension FormatPipeline {'
+    printf '%s\n' '  func rewrite(_ node: Syntax) -> Syntax {'
+    printf '%s\n' '    var node = node'
+    for rule in "${rules[@]}"; do
+      printf '    node = %s(context: context).rewrite(node)\n' "$rule"
+    done
+    printf '%s\n' '    return node' '  }' '}'
+  } > "$file"
+}
+
+generate_registry() {
+  local file="Sources/SwiftFormat/Core/RuleRegistry+Generated.swift"
+  local upstream_registry
+  upstream_registry="$(git show "$LOCK_FORMAT_SHA:Sources/SwiftFormat/Core/RuleRegistry+Generated.swift")"
+  {
+    printf '%s\n' '// Generated by Maintenance/sync-upstream. Do not edit.'
+    printf '%s\n' '@_spi(Internal) public enum RuleRegistry {' '  public static let rules: [String: Bool] = ['
+    for rule in "${rules[@]}"; do
+      enabled="$(sed -n "s/^[[:space:]]*\"$rule\": \\([^,]*\\),$/\\1/p" <<< "$upstream_registry")"
+      [[ "$enabled" == "true" || "$enabled" == "false" ]] \
+        || fail "cannot determine upstream default enablement for $rule"
+      printf '    "%s": %s,\n' "$rule" "$enabled"
+    done
+    printf '%s\n' '  ]' '}'
+  } > "$file"
+}
+
+generate_name_cache() {
+  local file="Sources/SwiftFormat/Core/RuleNameCache+Generated.swift"
+  {
+    printf '%s\n' '// Generated by Maintenance/sync-upstream. Do not edit.'
+    printf '%s\n' '@_spi(Testing) public let ruleNameCache: [ObjectIdentifier: String] = ['
+    for rule in "${rules[@]}"; do
+      printf '  ObjectIdentifier(%s.self): "%s",\n' "$rule" "$rule"
+    done
+    printf '%s\n' ']'
+  } > "$file"
+}
+
+generate_pipeline
+generate_registry
+generate_name_cache
+
+cp Maintenance/overlays/SwiftFormatter.swift Sources/SwiftFormat/API/SwiftFormatter.swift
+
+for file in "${unchanged_files[@]}"; do
+  actual_hash="$(git hash-object "$file")"
+  upstream_hash="$(git rev-parse "$LOCK_FORMAT_SHA:$file")"
+  [[ "$actual_hash" == "$upstream_hash" ]] \
+    || fail "A-owned file differs from pinned upstream: $file"
+done
+
+for generated in Sources/SwiftFormat/Core/Pipelines+Generated.swift \
+  Sources/SwiftFormat/Core/RuleRegistry+Generated.swift \
+  Sources/SwiftFormat/Core/RuleNameCache+Generated.swift; do
+  for rule in "${rules[@]}"; do
+    rg -q "\b${rule}\b" "$generated" || fail "generated file does not reference $rule: $generated"
+  done
+done
+
+for rule in "${rules[@]}"; do
+  file="$(rule_file "$rule")"
+  [[ -f "$file" ]] || fail "expected formatter rule source is absent: $file"
+  ! rg -q 'SyntaxLintRule' "$file" || fail "lint rule was imported: $file"
+done
+
+io_hits="$(rg -n \
+  -e 'format\(contentsOf:' \
+  -e 'Configuration\(contentsOf:' \
+  -e 'String\(contentsOf:' \
+  -e 'Data\(contentsOf:' \
+  -e '\bFileManager\b' \
+  -e '\bFileHandle\b' \
+  -e '\bURL\b' \
+  -e 'assumingFileURL' \
+  -e 'url\(forConfigurationFileApplyingTo' \
+  Sources/SwiftFormat || true)"
+[[ -z "$io_hits" ]] || fail "library Sources contain file I/O symbols:\n$io_hits"
+
+printf 'sync-upstream: restored %d files and generated %d formatter rules from %s\n' \
+  "${#files[@]}" "${#rules[@]}" "$LOCK_FORMAT_SHA"

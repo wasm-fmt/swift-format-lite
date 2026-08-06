@@ -1,0 +1,64 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift.org open source project
+//
+// Copyright (c) 2014 - 2022 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See https://swift.org/LICENSE.txt for license information
+// See https://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
+
+import SwiftDiagnostics
+import SwiftOperators
+import SwiftParser
+import SwiftParserDiagnostics
+import SwiftSyntax
+
+/// Parses the given source code and returns a valid `SourceFileSyntax` node.
+///
+/// This helper function automatically folds sequence expressions using the given operator table,
+/// ignoring errors so that formatting can do something reasonable in the presence of unrecognized
+/// operators.
+///
+/// - Parameters:
+///   - source: The Swift source code to be formatted.
+///   - operatorTable: The operator table to use for sequence folding.
+///   - fileName: The diagnostic source name associated with parser findings.
+///   - parsingDiagnosticHandler: An optional callback that will be notified if there are any
+///     errors when parsing the source code.
+/// - Throws: If an unrecoverable error occurs when formatting the code.
+func parseAndEmitDiagnostics(
+  source: String,
+  operatorTable: OperatorTable,
+  fileName: String,
+  parsingDiagnosticHandler: ((Diagnostic, SourceLocation) -> Void)? = nil
+) throws -> SourceFileSyntax {
+  var source = source
+  let sourceFile = source.withUTF8 { sourceBytes in
+    operatorTable.foldAll(Parser.parse(source: sourceBytes)) { _ in }
+      .as(SourceFileSyntax.self)!
+  }
+  let diagnostics = ParseDiagnosticsGenerator.diagnostics(for: sourceFile)
+  var hasErrors = false
+  if let parsingDiagnosticHandler = parsingDiagnosticHandler {
+    let expectedConverter =
+      SourceLocationConverter(fileName: fileName, tree: sourceFile)
+    for diagnostic in diagnostics {
+      let location = diagnostic.location(converter: expectedConverter)
+
+      // Ignore editor placeholders, because it is useful to support formatting
+      // in-progress files that contain those.
+      if diagnostic.diagnosticID != StaticTokenError.editorPlaceholder.diagnosticID {
+        parsingDiagnosticHandler(diagnostic, location)
+        hasErrors = true
+      }
+    }
+  }
+
+  guard !hasErrors else {
+    throw SwiftFormatError.fileContainsInvalidSyntax
+  }
+  return sourceFile
+}

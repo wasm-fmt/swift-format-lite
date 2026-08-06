@@ -1,0 +1,6 @@
+swift-format.tag = "603.0.0"
+swift-format.sha = "d54c5be7afba3e5f52ae29e2371e444a3c2a49c1"
+swift-syntax.tag = "603.0.0"
+swift-syntax.sha = "2b59c0c741e9184ab057fd22950b491076d42e91"
+swift.toolchain = "Swift 6.3.1"
+swift.tools-version = "6.0"

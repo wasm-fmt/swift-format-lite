@@ -1,0 +1,26 @@
+# Formatter rewrite rule type names from 603.0.0, one per line.
+AlwaysUseLiteralForEmptyCollectionInit
+DoNotUseSemicolons
+FileScopedDeclarationPrivacy
+FullyIndirectEnum
+GroupNumericLiterals
+NoAccessLevelOnExtensionDeclaration
+NoAssignmentInExpressions
+NoCasesWithOnlyFallthrough
+NoEmptyLinesOpeningClosingBraces
+NoEmptyTrailingClosureParentheses
+NoLabelsInCasePatterns
+NoParensAroundConditions
+NoVoidReturnOnFunctionSignature
+OmitExplicitReturns
+OneCasePerLine
+OneVariableDeclarationPerLine
+OrderedImports
+ReturnVoidInsteadOfEmptyTuple
+UseEarlyExits
+UseExplicitNilCheckInConditions
+UseLetInEveryBoundCaseVariable
+UseShorthandTypeNames
+UseSingleLinePropertyGetter
+UseTripleSlashForDocumentationComments
+UseWhereClausesInForLoops

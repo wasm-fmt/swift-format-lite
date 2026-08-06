@@ -1,0 +1,70 @@
+# Exact SwiftFormat 603.0.0 restore inputs. The sync script treats the A
+# section as unchanged upstream-owned files and applies deterministic overlays
+# to the C section before generating the pipeline and rule registries.
+# Lite-owned files are intentionally not listed here.
+# A: unchanged upstream files.
+.gitignore
+LICENSE.txt
+Sources/SwiftFormat/API/Configuration+Default.swift
+Sources/SwiftFormat/API/Finding.swift
+Sources/SwiftFormat/API/FindingCategorizing.swift
+Sources/SwiftFormat/API/Indent.swift
+Sources/SwiftFormat/API/Selection.swift
+Sources/SwiftFormat/Core/DocumentationCommentText.swift
+Sources/SwiftFormat/Core/Finding+Convenience.swift
+Sources/SwiftFormat/Core/FindingEmitter.swift
+Sources/SwiftFormat/Core/FormatPipeline.swift
+Sources/SwiftFormat/Core/FunctionDeclSyntax+Convenience.swift
+Sources/SwiftFormat/Core/ModifierListSyntax+Convenience.swift
+Sources/SwiftFormat/Core/Rule.swift
+Sources/SwiftFormat/Core/RuleBasedFindingCategory.swift
+Sources/SwiftFormat/Core/RuleMask.swift
+Sources/SwiftFormat/Core/RuleState.swift
+Sources/SwiftFormat/Core/SyntaxFormatRule.swift
+Sources/SwiftFormat/Core/SyntaxProtocol+Convenience.swift
+Sources/SwiftFormat/Core/SyntaxTraits.swift
+Sources/SwiftFormat/Core/Trivia+Convenience.swift
+Sources/SwiftFormat/Core/WithAttributesSyntax+Convenience.swift
+Sources/SwiftFormat/Core/WithSemicolonSyntax.swift
+Sources/SwiftFormat/PrettyPrint/Comment.swift
+Sources/SwiftFormat/PrettyPrint/Indent+Length.swift
+Sources/SwiftFormat/PrettyPrint/PrettyPrintBuffer.swift
+Sources/SwiftFormat/PrettyPrint/PrettyPrintFindingCategory.swift
+Sources/SwiftFormat/PrettyPrint/Token.swift
+Sources/SwiftFormat/PrettyPrint/TokenStreamCreator.swift
+Sources/SwiftFormat/PrettyPrint/Verbatim.swift
+Sources/SwiftFormat/Rules/AlwaysUseLiteralForEmptyCollectionInit.swift
+Sources/SwiftFormat/Rules/DoNotUseSemicolons.swift
+Sources/SwiftFormat/Rules/FileScopedDeclarationPrivacy.swift
+Sources/SwiftFormat/Rules/FullyIndirectEnum.swift
+Sources/SwiftFormat/Rules/GroupNumericLiterals.swift
+Sources/SwiftFormat/Rules/NoAccessLevelOnExtensionDeclaration.swift
+Sources/SwiftFormat/Rules/NoAssignmentInExpressions.swift
+Sources/SwiftFormat/Rules/NoCasesWithOnlyFallthrough.swift
+Sources/SwiftFormat/Rules/NoEmptyLineOpeningClosingBraces.swift
+Sources/SwiftFormat/Rules/NoEmptyTrailingClosureParentheses.swift
+Sources/SwiftFormat/Rules/NoLabelsInCasePatterns.swift
+Sources/SwiftFormat/Rules/NoParensAroundConditions.swift
+Sources/SwiftFormat/Rules/NoVoidReturnOnFunctionSignature.swift
+Sources/SwiftFormat/Rules/OmitExplicitReturns.swift
+Sources/SwiftFormat/Rules/OneCasePerLine.swift
+Sources/SwiftFormat/Rules/OneVariableDeclarationPerLine.swift
+Sources/SwiftFormat/Rules/OrderedImports.swift
+Sources/SwiftFormat/Rules/ReturnVoidInsteadOfEmptyTuple.swift
+Sources/SwiftFormat/Rules/UseEarlyExits.swift
+Sources/SwiftFormat/Rules/UseExplicitNilCheckInConditions.swift
+Sources/SwiftFormat/Rules/UseLetInEveryBoundCaseVariable.swift
+Sources/SwiftFormat/Rules/UseShorthandTypeNames.swift
+Sources/SwiftFormat/Rules/UseSingleLinePropertyGetter.swift
+Sources/SwiftFormat/Rules/UseTripleSlashForDocumentationComments.swift
+Sources/SwiftFormat/Rules/UseWhereClausesInForLoops.swift
+# C: upstream restore inputs transformed for the String-only runtime.
+Sources/SwiftFormat/API/Configuration.swift
+Sources/SwiftFormat/API/SwiftFormatError.swift
+Sources/SwiftFormat/Core/Context.swift
+Sources/SwiftFormat/Core/Parsing.swift
+Sources/SwiftFormat/PrettyPrint/PrettyPrint.swift
+# C: generated from the pinned rule manifest, not copied from upstream.
+Sources/SwiftFormat/Core/Pipelines+Generated.swift
+Sources/SwiftFormat/Core/RuleNameCache+Generated.swift
+Sources/SwiftFormat/Core/RuleRegistry+Generated.swift
