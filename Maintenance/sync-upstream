@@ -19,11 +19,19 @@ LOCK_TAG="$(sed -n 's/^swift-format.tag = \"\([^\"]*\)\"$/\1/p' Upstream.lock)"
 LOCK_FORMAT_SHA="$(sed -n 's/^swift-format.sha = \"\([^\"]*\)\"$/\1/p' Upstream.lock)"
 LOCK_SYNTAX_TAG="$(sed -n 's/^swift-syntax.tag = \"\([^\"]*\)\"$/\1/p' Upstream.lock)"
 LOCK_SYNTAX_SHA="$(sed -n 's/^swift-syntax.sha = \"\([^\"]*\)\"$/\1/p' Upstream.lock)"
+LOCK_SWIFT_VERSION="$(sed -n 's/^swift.toolchain = \"Swift \([^\"]*\)\"$/\1/p' Upstream.lock)"
 
 [[ -n "$LOCK_TAG" ]] || fail "Upstream.lock must pin a swift-format tag"
 [[ -n "$LOCK_SYNTAX_TAG" ]] || fail "Upstream.lock must pin a swift-syntax tag"
+[[ -n "$LOCK_SWIFT_VERSION" ]] || fail "Upstream.lock must pin a Swift toolchain version"
 [[ "$LOCK_FORMAT_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid swift-format full SHA"
 [[ "$LOCK_SYNTAX_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid swift-syntax full SHA"
+
+CURRENT_SWIFT_VERSION="$(
+  swift --version | sed -n 's/.*Swift version \([0-9][0-9.]*\).*/\1/p' | head -n 1
+)"
+[[ "$CURRENT_SWIFT_VERSION" == "$LOCK_SWIFT_VERSION" ]] \
+  || fail "active Swift $CURRENT_SWIFT_VERSION does not match locked Swift $LOCK_SWIFT_VERSION"
 
 TAG_SHA="$(git rev-parse --verify "refs/tags/$LOCK_TAG^{commit}")"
 [[ "$TAG_SHA" == "$LOCK_FORMAT_SHA" ]] \
@@ -32,26 +40,16 @@ rg -q "revision: \"$LOCK_SYNTAX_SHA\"" Package.swift \
   || fail "Package.swift does not use the locked swift-syntax revision"
 
 verify_syntax_sha() {
-  local actual=""
-  local checkout="${SWIFTSYNTAX_CHECKOUT:-}"
-
-  if [[ -n "$checkout" && -d "$checkout/.git" ]]; then
-    actual="$(git -C "$checkout" rev-parse --verify "$LOCK_SYNTAX_TAG^{commit}" 2>/dev/null || true)"
-  fi
-
-  if [[ -z "$actual" ]]; then
-    actual="$(
-      git ls-remote "https://github.com/swiftlang/swift-syntax.git" \
-        "refs/tags/$LOCK_SYNTAX_TAG" "refs/tags/$LOCK_SYNTAX_TAG^{}" \
-        | awk '
-          /\^\{\}$/ { peeled = $1 }
-          !/\^\{\}$/ { direct = $1 }
-          END { print peeled != "" ? peeled : direct }
-        '
-    )"
-  fi
-
-  [[ "$actual" == "$LOCK_SYNTAX_SHA" ]] || fail "swift-syntax tag cannot be verified against Upstream.lock"
+  local checkout="${SWIFTSYNTAX_CHECKOUT:-.build/checkouts/swift-syntax}"
+  [[ -d "$checkout/.git" ]] \
+    || fail "swift-syntax checkout is required locally; set SWIFTSYNTAX_CHECKOUT"
+  local actual
+  actual="$(
+    git -C "$checkout" rev-parse --verify "refs/tags/$LOCK_SYNTAX_TAG^{commit}" 2>/dev/null \
+      || true
+  )"
+  [[ "$actual" == "$LOCK_SYNTAX_SHA" ]] \
+    || fail "local swift-syntax tag does not resolve to the locked revision"
 }
 
 verify_syntax_sha
@@ -87,17 +85,74 @@ read_rules_manifest() {
   done < Maintenance/rules.txt
 }
 
+read_test_sources_lock() {
+  test_destinations=()
+  test_sources=()
+  test_source_blobs=()
+  support_destinations=()
+  support_sources=()
+  support_source_blobs=()
+  local line
+  local kind
+  local destination
+  local source
+  local blob
+  local extra
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      ""|\#*) continue ;;
+    esac
+    kind=""
+    destination=""
+    source=""
+    blob=""
+    extra=""
+    read -r kind destination source blob extra <<< "$line"
+    [[ -n "$kind" && -n "$destination" && -n "$source" && -n "$blob" ]] \
+      || fail "test-sources.lock has an incomplete entry: $line"
+    [[ -z "${extra:-}" ]] || fail "test-sources.lock contains extra fields: $destination"
+    case "$kind" in
+      suite)
+        test_destinations+=("$destination")
+        test_sources+=("$source")
+        test_source_blobs+=("$blob")
+        ;;
+      support)
+        support_destinations+=("$destination")
+        support_sources+=("$source")
+        support_source_blobs+=("$blob")
+        ;;
+      *) fail "test-sources.lock has an invalid kind: $kind" ;;
+    esac
+  done < Maintenance/test-sources.lock
+}
+
 files=()
 unchanged_files=()
 transformed_files=()
 rules=()
+test_destinations=()
+test_sources=()
+test_source_blobs=()
+support_destinations=()
+support_sources=()
+support_source_blobs=()
 read_files_manifest
 read_rules_manifest
+read_test_sources_lock
 
 [[ "${#files[@]}" -gt 0 ]] || fail "empty files manifest"
 [[ "${#unchanged_files[@]}" -gt 0 ]] || fail "files manifest has no A-owned files"
 [[ "${#transformed_files[@]}" -gt 0 ]] || fail "files manifest has no C-owned files"
 [[ "${#rules[@]}" -eq 25 ]] || fail "rules manifest must contain exactly 25 rules"
+[[ "${#test_destinations[@]}" -eq 96 ]] \
+  || fail "test-sources.lock must contain exactly 96 test sources"
+[[ "${#support_destinations[@]}" -eq 5 ]] \
+  || fail "test-sources.lock must contain exactly 5 support sources"
+[[ "${#test_destinations[@]}" -eq "${#test_sources[@]}" ]] \
+  || fail "test-sources.lock test columns have different counts"
+[[ "${#support_destinations[@]}" -eq "${#support_sources[@]}" ]] \
+  || fail "test-sources.lock support columns have different counts"
 
 duplicate_files="$(printf '%s\n' "${files[@]}" | sort | uniq -d)"
 [[ -z "$duplicate_files" ]] || fail "files.txt contains duplicate paths: $duplicate_files"
@@ -113,6 +168,90 @@ for file in "${files[@]}"; do
   esac
 done
 
+validate_test_source_path() {
+  local destination="$1"
+  local source="$2"
+  case "$destination" in
+    /*|*'*'*|*'?'*|*'['*|*']'*|*'..'*|*'//'*)
+      fail "test-sources.lock contains a non-literal destination: $destination"
+      ;;
+    Tests/SwiftFormatTests/API/*|Tests/SwiftFormatTests/Core/*|\
+      Tests/SwiftFormatTests/PrettyPrint/*|Tests/SwiftFormatTests/Rules/*|\
+      Tests/SwiftFormatTests/Support/*) ;;
+    *) fail "test destination is outside Tests/SwiftFormatTests: $destination" ;;
+  esac
+  case "$source" in
+    /*|*'*'*|*'?'*|*'['*|*']'*|*'..'*|*'//'*)
+      fail "test-sources.lock contains a non-literal source: $source"
+      ;;
+    Tests/SwiftFormatTests/API/*|Tests/SwiftFormatTests/Core/*|\
+      Tests/SwiftFormatTests/PrettyPrint/*|Tests/SwiftFormatTests/Rules/*|\
+      Sources/_SwiftFormatTestSupport/*) ;;
+    *) fail "test source is outside the reviewed upstream test areas: $source" ;;
+  esac
+}
+
+duplicate_test_destinations="$(printf '%s\n' "${test_destinations[@]}" | sort | uniq -d)"
+[[ -z "$duplicate_test_destinations" ]] \
+  || fail "test-sources.lock contains duplicate test destinations: $duplicate_test_destinations"
+duplicate_support_destinations="$(printf '%s\n' "${support_destinations[@]}" | sort | uniq -d)"
+[[ -z "$duplicate_support_destinations" ]] \
+  || fail "test-sources.lock contains duplicate support destinations: $duplicate_support_destinations"
+duplicate_destinations="$(printf '%s\n' "${test_destinations[@]}" "${support_destinations[@]}" | sort | uniq -d)"
+[[ -z "$duplicate_destinations" ]] \
+  || fail "test-sources.lock contains duplicate destinations: $duplicate_destinations"
+duplicate_sources="$(printf '%s\n' "${test_sources[@]}" "${support_sources[@]}" | sort | uniq -d)"
+[[ -z "$duplicate_sources" ]] \
+  || fail "test-sources.lock contains duplicate upstream sources: $duplicate_sources"
+
+for ((index = 0; index < ${#test_destinations[@]}; index++)); do
+  destination="${test_destinations[$index]}"
+  source="${test_sources[$index]}"
+  expected_blob="${test_source_blobs[$index]}"
+  validate_test_source_path "$destination" "$source"
+  [[ "$expected_blob" =~ ^[0-9a-f]{40}$ ]] \
+    || fail "invalid test source blob SHA for $destination: $expected_blob"
+  actual_blob="$(git rev-parse "$LOCK_FORMAT_SHA:$source" 2>/dev/null || true)"
+  [[ "$actual_blob" == "$expected_blob" ]] \
+    || fail "upstream test source changed, deleted, or renamed: $source (destination $destination)"
+  [[ -f "$destination" ]] || fail "missing local test snapshot: $destination"
+  rg -q '^@Suite$' "$destination" \
+    || fail "local test snapshot is not a Swift Testing suite: $destination"
+
+  actual_methods="$(sed -n 's/^  func \(test[A-Za-z0-9_]*\)(.*/\1/p' "$destination")"
+  if [[ "$destination" == "Tests/SwiftFormatTests/API/ConfigurationTests.swift" ]]; then
+    expected_methods="$(
+      printf '%s\n' \
+        testDefaultConfigurationIsSameAsEmptyDecode \
+        testDecodingReflowMultilineStringLiteralsAsString \
+        testDecodingReflowMultilineStringLiteralsAsObject \
+        testConfigurationWithComments
+    )"
+  else
+    expected_methods="$(
+      git show "$LOCK_FORMAT_SHA:$source" \
+        | sed -n 's/^  func \(test[A-Za-z0-9_]*\)(.*/\1/p'
+    )"
+  fi
+  [[ "$actual_methods" == "$expected_methods" ]] \
+    || fail "local test methods differ from the reviewed upstream subset: $destination"
+done
+
+for ((index = 0; index < ${#support_destinations[@]}; index++)); do
+  destination="${support_destinations[$index]}"
+  source="${support_sources[$index]}"
+  expected_blob="${support_source_blobs[$index]}"
+  validate_test_source_path "$destination" "$source"
+  [[ "$expected_blob" =~ ^[0-9a-f]{40}$ ]] \
+    || fail "invalid support source blob SHA for $destination: $expected_blob"
+  actual_blob="$(git rev-parse "$LOCK_FORMAT_SHA:$source" 2>/dev/null || true)"
+  [[ "$actual_blob" == "$expected_blob" ]] \
+    || fail "upstream support source changed, deleted, or renamed: $source (destination $destination)"
+  [[ -f "$destination" ]] || fail "missing local test support snapshot: $destination"
+  ! rg -q '^@Suite$' "$destination" \
+    || fail "test support unexpectedly declares a suite: $destination"
+done
+
 duplicate_rules="$(printf '%s\n' "${rules[@]}" | sort | uniq -d)"
 [[ -z "$duplicate_rules" ]] || fail "rules.txt contains duplicate rules: $duplicate_rules"
 for rule in "${rules[@]}"; do
@@ -123,6 +262,20 @@ rule_file() {
   case "$1" in
     NoEmptyLinesOpeningClosingBraces) printf '%s\n' "Sources/SwiftFormat/Rules/NoEmptyLineOpeningClosingBraces.swift" ;;
     *) printf 'Sources/SwiftFormat/Rules/%s.swift\n' "$1" ;;
+  esac
+}
+
+rule_test_file() {
+  case "$1" in
+    NoEmptyLinesOpeningClosingBraces)
+      printf '%s\n' "Tests/SwiftFormatTests/Rules/NoEmptyLinesOpeningClosingBracesTests.swift"
+      ;;
+    OmitExplicitReturns)
+      printf '%s\n' "Tests/SwiftFormatTests/Rules/OmitReturnsTests.swift"
+      ;;
+    *)
+      printf 'Tests/SwiftFormatTests/Rules/%sTests.swift\n' "$1"
+      ;;
   esac
 }
 
@@ -141,15 +294,19 @@ for rule in "${rules[@]}"; do
   git cat-file -e "$LOCK_FORMAT_SHA:$source_file" 2>/dev/null || fail "missing rule source: $source_file"
   git show "$LOCK_FORMAT_SHA:$source_file" | rg -q "class $rule: SyntaxFormatRule" \
     || fail "rule is not a SyntaxFormatRule in the pinned tag: $rule"
+
+  test_file="$(rule_test_file "$rule")"
+  printf '%s\n' "${test_destinations[@]}" | rg -Fqx "$test_file" \
+    || fail "missing retained formatter rule test snapshot: $test_file"
 done
 
 archive_path="$(mktemp /tmp/swift-format-lite-upstream.XXXXXX)"
 trap 'rm -f -- "$archive_path"' EXIT
 git archive --format=tar --output="$archive_path" "$LOCK_FORMAT_SHA" "${files[@]}"
 
-# The source tree is an import area. Recreate it from the archive so a removed
-# upstream file cannot survive a sync, while the Lite-owned API is copied back
-# below from its overlay.
+# The source tree is an import area. Recreate it from the archive so removed
+# upstream files cannot survive a sync. Tests remain the manually reviewed
+# Swift Testing snapshot in the working tree.
 rm -rf -- Sources/SwiftFormat
 mkdir -p Sources/SwiftFormat
 tar -xf "$archive_path"
@@ -331,5 +488,69 @@ io_hits="$(rg -n \
   Sources/SwiftFormat || true)"
 [[ -z "$io_hits" ]] || fail "library Sources contain file I/O symbols:\n$io_hits"
 
-printf 'sync-upstream: restored %d files and generated %d formatter rules from %s\n' \
-  "${#files[@]}" "${#rules[@]}" "$LOCK_FORMAT_SHA"
+expected_test_files="$(printf '%s\n' "${test_destinations[@]}" "${support_destinations[@]}" | sort)"
+actual_test_files="$(find Tests/SwiftFormatTests -type f -print | sort)"
+[[ "$actual_test_files" == "$expected_test_files" ]] \
+  || fail "local test tree differs from test-sources.lock"
+
+suite_count="$(rg -l '^@Suite$' Tests/SwiftFormatTests | wc -l | tr -d ' ')"
+test_count="$(rg -n '^  @Test$' Tests/SwiftFormatTests | wc -l | tr -d ' ')"
+[[ "$suite_count" -eq 96 ]] || fail "expected 96 Swift Testing suites, found $suite_count"
+[[ "$test_count" -eq 759 ]] || fail "expected 759 tests, found $test_count"
+
+for expectation in \
+  "API:1:4" \
+  "Core:2:24" \
+  "PrettyPrint:68:559" \
+  "Rules:25:172"; do
+  category="${expectation%%:*}"
+  counts="${expectation#*:}"
+  expected_suites="${counts%%:*}"
+  expected_tests="${counts#*:}"
+  actual_suites="$(rg -l '^@Suite$' "Tests/SwiftFormatTests/$category" | wc -l | tr -d ' ')"
+  actual_tests="$(rg -n '^  @Test$' "Tests/SwiftFormatTests/$category" | wc -l | tr -d ' ')"
+  [[ "$actual_suites" -eq "$expected_suites" ]] \
+    || fail "$category suite count changed: expected $expected_suites, found $actual_suites"
+  [[ "$actual_tests" -eq "$expected_tests" ]] \
+    || fail "$category test count changed: expected $expected_tests, found $actual_tests"
+done
+
+legacy_test_hits="$(rg -n \
+  -e '^import XCTest$' \
+  -e ': XCTestCase' \
+  -e 'import _SwiftFormatTestSupport' \
+  Tests/SwiftFormatTests || true)"
+[[ -z "$legacy_test_hits" ]] || fail "local tests still depend on XCTest support:\n$legacy_test_hits"
+
+excluded_test_hits="$(rg -n \
+  -e '^import Markdown$' \
+  -e '\bSyntaxLintRule\b' \
+  -e '\bSwiftLinter\b' \
+  -e '\bLintPipeline\b' \
+  -e '\bWhitespaceLinter\b' \
+  -e '\bWhitespaceTestCase\b' \
+  -e '\bSwiftFormatWasm\b' \
+  Tests/SwiftFormatTests || true)"
+[[ -z "$excluded_test_hits" ]] \
+  || fail "local tests contain excluded lint, Markdown, whitespace, or WASM support:\n$excluded_test_hits"
+
+test_io_hits="$(rg -n \
+  -e 'Data\(contentsOf:' \
+  -e 'String\(contentsOf:' \
+  -e 'URL\(fileURLWithPath:' \
+  -e '\bFileManager\b' \
+  -e '\bFileHandle\b' \
+  -e 'url\(forConfigurationFileApplyingTo' \
+  Tests/SwiftFormatTests || true)"
+[[ -z "$test_io_hits" ]] || fail "local tests contain file I/O:\n$test_io_hits"
+
+for destination in "${test_destinations[@]}"; do
+  case "$destination" in
+    *Whitespace*|*Lint*|*Wasm*|*WASM*)
+      fail "excluded test category is locked: $destination"
+      ;;
+  esac
+done
+
+printf 'sync-upstream: restored %d source files, audited %d tests in %d suites, and generated %d formatter rules from %s\n' \
+  "${#files[@]}" "$test_count" "$suite_count" "${#rules[@]}" "$LOCK_FORMAT_SHA"

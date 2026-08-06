@@ -1,0 +1,131 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift.org open source project
+//
+// Copyright (c) 2014 - 2025 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See https://swift.org/LICENSE.txt for license information
+// See https://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Testing
+
+@_spi(Rules) import SwiftFormat
+
+@Suite
+class FullyIndirectEnumTests: LintOrFormatRuleTestCase {
+  @Test
+  func testAllIndirectCases() throws {
+    try assertFormatting(
+      FullyIndirectEnum.self,
+      input: """
+        // Comment 1
+        public 1️⃣enum DependencyGraphNode {
+          internal 2️⃣indirect case userDefined(dependencies: [DependencyGraphNode])
+          // Comment 2
+          3️⃣indirect case synthesized(dependencies: [DependencyGraphNode])
+          4️⃣indirect case other(dependencies: [DependencyGraphNode])
+          var x: Int
+        }
+        """,
+      expected: """
+        // Comment 1
+        public indirect enum DependencyGraphNode {
+          internal case userDefined(dependencies: [DependencyGraphNode])
+          // Comment 2
+          case synthesized(dependencies: [DependencyGraphNode])
+          case other(dependencies: [DependencyGraphNode])
+          var x: Int
+        }
+        """,
+      findings: [
+        FindingSpec(
+          "1️⃣",
+          message: "declare enum 'DependencyGraphNode' itself as indirect when all cases are indirect",
+          notes: [
+            NoteSpec("2️⃣", message: "remove 'indirect' here"),
+            NoteSpec("3️⃣", message: "remove 'indirect' here"),
+            NoteSpec("4️⃣", message: "remove 'indirect' here"),
+          ]
+        )
+      ]
+    )
+  }
+
+  @Test
+  func testAllIndirectCasesWithAttributes() throws {
+    try assertFormatting(
+      FullyIndirectEnum.self,
+      input: """
+        // Comment 1
+        public 1️⃣enum DependencyGraphNode {
+          @someAttr internal 2️⃣indirect case userDefined(dependencies: [DependencyGraphNode])
+          // Comment 2
+          @someAttr 3️⃣indirect case synthesized(dependencies: [DependencyGraphNode])
+          @someAttr 4️⃣indirect case other(dependencies: [DependencyGraphNode])
+          var x: Int
+        }
+        """,
+      expected: """
+        // Comment 1
+        public indirect enum DependencyGraphNode {
+          @someAttr internal case userDefined(dependencies: [DependencyGraphNode])
+          // Comment 2
+          @someAttr case synthesized(dependencies: [DependencyGraphNode])
+          @someAttr case other(dependencies: [DependencyGraphNode])
+          var x: Int
+        }
+        """,
+      findings: [
+        FindingSpec(
+          "1️⃣",
+          message: "declare enum 'DependencyGraphNode' itself as indirect when all cases are indirect",
+          notes: [
+            NoteSpec("2️⃣", message: "remove 'indirect' here"),
+            NoteSpec("3️⃣", message: "remove 'indirect' here"),
+            NoteSpec("4️⃣", message: "remove 'indirect' here"),
+          ]
+        )
+      ]
+    )
+  }
+
+  @Test
+  func testNotAllIndirectCases() throws {
+    let input = """
+      public enum CompassPoint {
+        case north
+        indirect case south
+        case east
+        case west
+      }
+      """
+    try assertFormatting(FullyIndirectEnum.self, input: input, expected: input, findings: [])
+  }
+
+  @Test
+  func testAlreadyIndirectEnum() throws {
+    let input = """
+      indirect enum CompassPoint {
+        case north
+        case south
+        case east
+        case west
+      }
+      """
+    try assertFormatting(FullyIndirectEnum.self, input: input, expected: input, findings: [])
+  }
+
+  @Test
+  func testCaselessEnum() throws {
+    let input = """
+      public enum Constants {
+        public static let foo = 5
+        public static let bar = "bar"
+      }
+      """
+    try assertFormatting(FullyIndirectEnum.self, input: input, expected: input, findings: [])
+  }
+}

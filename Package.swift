@@ -29,6 +29,16 @@ let package = Package(
         .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
       ]
     ),
+    .testTarget(
+      name: "SwiftFormatTests",
+      dependencies: [
+        "SwiftFormat",
+        .product(name: "SwiftOperators", package: "swift-syntax"),
+        .product(name: "SwiftParser", package: "swift-syntax"),
+        .product(name: "SwiftSyntax", package: "swift-syntax"),
+        .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
+      ]
+    ),
   ],
   swiftLanguageModes: [.v5]
 )
