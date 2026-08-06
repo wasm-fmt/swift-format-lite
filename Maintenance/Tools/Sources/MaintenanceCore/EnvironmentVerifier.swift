@@ -48,10 +48,14 @@ enum EnvironmentVerifier {
     let packageText = try FileSystem.readText(
       project.root.appendingPathComponent("Package.swift")
     )
-    let revision = #"revision: "\#(project.lock.swiftSyntaxSHA)""#
+    let exactVersion = #"exact: "\#(project.lock.swiftSyntaxTag)""#
     try require(
-      packageText.contains(revision),
-      "Package.swift does not use the locked swift-syntax revision"
+      packageText.contains(exactVersion),
+      "Package.swift does not use the locked stable swift-syntax version"
+    )
+    try require(
+      !packageText.contains("revision:") && !packageText.contains("branch:"),
+      "Package.swift must not use unstable branch or revision dependencies"
     )
 
     let firstLine = packageText.split(
